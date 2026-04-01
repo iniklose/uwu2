@@ -64,7 +64,7 @@
 
     // Notifikasi jika server terputus/restart
     socket.on('disconnect', function() {
-        document.getElementById('logs').innerHTML = "<span class='text-danger'>[SYSTEM] Koneksi terputus! Mencoba menyambung kembali...</span><br>" + document.getElementById('logs').innerHTML;
+        document.getElementById('logs').innerHTML = "<span class='text-danger'>[SYSTEM] Koneksi terputus! Mengubungkan ulang...</span><br>" + document.getElementById('logs').innerHTML;
     });
 
     // Menerima update data secara real-time
