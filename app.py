@@ -30,6 +30,7 @@ stats = {
     "success": 0,
     "failed": 0,
     "current_q": "Menghubungkan ke mesin bot...",
+    "current_r": "-", # Indikator Ronde
     "logs": []
 }
 
@@ -80,7 +81,6 @@ def ask_ai(question, is_mc, previous_attempts=None):
 
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
     
-    # PERBAIKAN: Kurung kurawal payload sudah ditutup dengan benar
     payload = {
         "model": MODEL_AI,
         "messages": [
@@ -152,6 +152,7 @@ def bot_engine():
                 curr_r = r_match.group(1)
                 
                 if curr_r != last_r and "0 remaining" not in out_q:
+                    stats["current_r"] = curr_r # Update Info Ronde
                     stats["current_q"] = q_text
                     socketio.emit('update', stats)
                     add_log(f"🔥 Kuis Baru Terdeteksi! Ronde #{curr_r}", "AI")
