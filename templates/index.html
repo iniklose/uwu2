@@ -3,47 +3,90 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
     <title>NARA HACKER TERMINAL</title>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     
-    <link href="https://fonts.cdnfonts.com/css/minecraft-4" rel="stylesheet">
+    <link href="https://fonts.cdnfonts.com/css/minecraftia" rel="stylesheet">
 
     <style>
-        body { background: #010409; color: #ffffff; font-family: 'Minecraft', sans-serif; padding-top: 20px;}
-        .card-cyber { background: #0d1117; border: 1px solid #238636; border-radius: 10px; box-shadow: 0 0 15px rgba(35, 134, 54, 0.2); }
-        .stat-box { font-size: 2.5rem; color: #ffffff; text-shadow: 0 0 10px #238636; }
-        .log-container { height: 350px; overflow-y: auto; background: #000; border: 1px solid #30363d; padding: 15px; border-radius: 5px; font-size: 0.9rem;}
+        /* Pengaturan Background Statis & Font */
+        body { 
+            /* Background biner realistis dari sumber gambar berkualitas dengan lapisan gelap (overlay) 85% */
+            background-color: #050505;
+            background-image: linear-gradient(rgba(5, 5, 5, 0.85), rgba(5, 5, 5, 0.85)), url('https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?q=80&w=2070&auto=format&fit=crop');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            
+            /* Warna teks abu-abu terang dan font Minecraftia */
+            color: #b0b0b0; 
+            font-family: 'Minecraftia', 'Courier New', monospace; 
+            padding-top: 20px;
+        }
+
+        /* Kotak Status Semi-Transparan (Efek Kaca) */
+        .card-cyber { 
+            background: rgba(13, 17, 23, 0.65); /* Hitam transparan 65% */
+            backdrop-filter: blur(4px); /* Efek blur pada background yang tembus */
+            border: 1px solid #238636; 
+            border-radius: 10px; 
+            box-shadow: 0 0 15px rgba(35, 134, 54, 0.2); 
+        }
+
+        /* Angka Status Keabu-abuan */
+        .stat-box { 
+            font-size: 2.5rem; 
+            color: #c0c0c0; /* Putih keabu-abuan */
+            text-shadow: 0 0 10px rgba(35, 134, 54, 0.4); 
+        }
+        
+        .stat-success { color: #56d364; text-shadow: 0 0 10px rgba(86, 211, 100, 0.3); }
+        .stat-danger { color: #f85149; text-shadow: 0 0 10px rgba(248, 81, 73, 0.3); }
+
+        /* Terminal Log Lebih Transparan */
+        .log-container { 
+            height: 350px; 
+            overflow-y: auto; 
+            background: rgba(0, 0, 0, 0.4); /* Hitam transparan 40% agar background lebih terlihat */
+            backdrop-filter: blur(2px);
+            border: 1px solid #30363d; 
+            padding: 15px; 
+            border-radius: 5px; 
+            font-size: 0.9rem;
+            color: #a0a0a0; /* Teks log abu-abu */
+        }
+        
         .glow-text { color: #58a6ff; }
+        .text-title { color: #d0d0d0; } /* Abu-abu terang untuk judul utama */
     </style>
 </head>
 <body>
 <div class="container py-4">
     <div class="text-center mb-4">
-        <h1 class="display-5 fw-bold text-white">NARA BOT V19.0</h1>
-        <p class="text-white">Live Auto-Hacker Dashboard</p>
+        <h1 class="display-5 fw-bold text-title">NARA BOT V19.0</h1>
+        <p style="color: #909090;">Live Auto-Hacker Dashboard</p>
     </div>
 
     <div class="row g-3 mb-4">
         <div class="col-md-4">
             <div class="card-cyber p-3 text-center">
-                <h6 class="text-uppercase text-white">Wallet Balance</h6>
+                <h6 class="text-uppercase" style="color: #909090;">Wallet Balance</h6>
                 <div id="bal" class="stat-box">0.0</div>
                 <small class="glow-text">NARA TOKEN</small>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card-cyber p-3 text-center">
-                <h6 class="text-uppercase text-white">Success Quest</h6>
-                <div id="ok" class="stat-box text-success">0</div>
+                <h6 class="text-uppercase" style="color: #909090;">Success Quest</h6>
+                <div id="ok" class="stat-box stat-success">0</div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card-cyber p-3 text-center">
-                <h6 class="text-uppercase text-white">Failed Quest</h6>
-                <div id="fail" class="stat-box text-danger">0</div>
+                <h6 class="text-uppercase" style="color: #909090;">Failed Quest</h6>
+                <div id="fail" class="stat-box stat-danger">0</div>
             </div>
         </div>
     </div>
@@ -52,16 +95,16 @@
         <div class="d-flex justify-content-between align-items-center border-bottom border-secondary pb-2 mb-3">
             <h6 class="text-warning text-uppercase mb-0">Pertanyaan Kuis Aktif</h6>
             <div class="px-3 py-1 rounded" style="background: rgba(35, 134, 54, 0.2); border: 1px solid #238636;">
-                <span class="text-white small">RONDE:</span> 
-                <strong id="round" class="text-success fs-5">#--</strong>
+                <span class="small" style="color: #a0a0a0;">RONDE:</span> 
+                <strong id="round" class="stat-success fs-5">#--</strong>
             </div>
         </div>
-        <div id="quest" class="fs-6 text-white">Memuat koneksi...</div>
+        <div id="quest" class="fs-6" style="color: #d0d0d0;">Memuat koneksi...</div>
     </div>
 
     <div class="card-cyber p-3">
-        <h6 class="text-uppercase mb-3 text-white">Live Terminal Logs</h6>
-        <div id="logs" class="log-container text-white">Menunggu respons server...</div>
+        <h6 class="text-uppercase mb-3" style="color: #b0b0b0;">Live Terminal Logs</h6>
+        <div id="logs" class="log-container">Menunggu respons server...</div>
     </div>
 </div>
 
@@ -69,11 +112,11 @@
     var socket = io();
     
     socket.on('connect', function() {
-        document.getElementById('logs').innerHTML = "<span class='text-success'>[SYSTEM] Terhubung ke Server Bot Nara! Sinkronisasi data...</span><br>";
+        document.getElementById('logs').innerHTML = "<span style='color: #56d364;'>[SYSTEM] Terhubung ke Server Bot Nara! Sinkronisasi data...</span><br>";
     });
 
     socket.on('disconnect', function() {
-        document.getElementById('logs').innerHTML = "<span class='text-danger'>[SYSTEM] Koneksi terputus! Menghubungkan ulang...</span><br>" + document.getElementById('logs').innerHTML;
+        document.getElementById('logs').innerHTML = "<span style='color: #f85149;'>[SYSTEM] Koneksi terputus! Menghubungkan ulang...</span><br>" + document.getElementById('logs').innerHTML;
     });
 
     socket.on('update', function(data) {
