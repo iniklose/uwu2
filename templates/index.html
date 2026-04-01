@@ -45,17 +45,29 @@
 
     <div class="card-cyber p-3 mb-4">
         <h6 class="text-warning text-uppercase">Pertanyaan Kuis Aktif</h6>
-        <div id="quest" class="fs-6 py-2 text-white">Memuat...</div>
+        <div id="quest" class="fs-6 py-2 text-white">Memuat koneksi...</div>
     </div>
 
     <div class="card-cyber p-3">
         <h6 class="text-uppercase mb-3">Live Terminal Logs</h6>
-        <div id="logs" class="log-container">Menunggu koneksi server...</div>
+        <div id="logs" class="log-container"><span class="text-secondary">Menunggu respons server...</span></div>
     </div>
 </div>
 
 <script>
     var socket = io();
+    
+    // Notifikasi saat sukses terhubung ke backend Railway
+    socket.on('connect', function() {
+        document.getElementById('logs').innerHTML = "<span class='text-success'>[SYSTEM] Terhubung ke Server Bot Nara! Sinkronisasi data...</span><br>";
+    });
+
+    // Notifikasi jika server terputus/restart
+    socket.on('disconnect', function() {
+        document.getElementById('logs').innerHTML = "<span class='text-danger'>[SYSTEM] Koneksi terputus! Mencoba menyambung kembali...</span><br>" + document.getElementById('logs').innerHTML;
+    });
+
+    // Menerima update data secara real-time
     socket.on('update', function(data) {
         document.getElementById('bal').innerText = data.balance;
         document.getElementById('ok').innerText = data.success;
