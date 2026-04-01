@@ -3,11 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
     <title>NARA HACKER TERMINAL</title>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <link href="https://fonts.cdnfonts.com/css/minecraft-4" rel="stylesheet">
+
     <style>
-        body { background: #010409; color: #7ee787; font-family: 'Consolas', monospace; padding-top: 20px;}
+        body { background: #010409; color: #ffffff; font-family: 'Minecraft', sans-serif; padding-top: 20px;}
         .card-cyber { background: #0d1117; border: 1px solid #238636; border-radius: 10px; box-shadow: 0 0 15px rgba(35, 134, 54, 0.2); }
         .stat-box { font-size: 2.5rem; color: #ffffff; text-shadow: 0 0 10px #238636; }
         .log-container { height: 350px; overflow-y: auto; background: #000; border: 1px solid #30363d; padding: 15px; border-radius: 5px; font-size: 0.9rem;}
@@ -17,62 +22,66 @@
 <body>
 <div class="container py-4">
     <div class="text-center mb-4">
-        <h1 class="display-5 fw-bold">NARA <span class="text-white">BOT</span> V19.0</h1>
-        <p class="text-muted">Live Auto-Hacker Dashboard</p>
+        <h1 class="display-5 fw-bold text-white">NARA BOT V19.0</h1>
+        <p class="text-white">Live Auto-Hacker Dashboard</p>
     </div>
 
     <div class="row g-3 mb-4">
         <div class="col-md-4">
             <div class="card-cyber p-3 text-center">
-                <h6 class="text-uppercase text-muted">Wallet Balance</h6>
+                <h6 class="text-uppercase text-white">Wallet Balance</h6>
                 <div id="bal" class="stat-box">0.0</div>
                 <small class="glow-text">NARA TOKEN</small>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card-cyber p-3 text-center">
-                <h6 class="text-uppercase text-muted">Success Quest</h6>
+                <h6 class="text-uppercase text-white">Success Quest</h6>
                 <div id="ok" class="stat-box text-success">0</div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card-cyber p-3 text-center">
-                <h6 class="text-uppercase text-muted">Failed Quest</h6>
+                <h6 class="text-uppercase text-white">Failed Quest</h6>
                 <div id="fail" class="stat-box text-danger">0</div>
             </div>
         </div>
     </div>
 
     <div class="card-cyber p-3 mb-4">
-        <h6 class="text-warning text-uppercase">Pertanyaan Kuis Aktif</h6>
-        <div id="quest" class="fs-6 py-2 text-white">Memuat koneksi...</div>
+        <div class="d-flex justify-content-between align-items-center border-bottom border-secondary pb-2 mb-3">
+            <h6 class="text-warning text-uppercase mb-0">Pertanyaan Kuis Aktif</h6>
+            <div class="px-3 py-1 rounded" style="background: rgba(35, 134, 54, 0.2); border: 1px solid #238636;">
+                <span class="text-white small">RONDE:</span> 
+                <strong id="round" class="text-success fs-5">#--</strong>
+            </div>
+        </div>
+        <div id="quest" class="fs-6 text-white">Memuat koneksi...</div>
     </div>
 
     <div class="card-cyber p-3">
-        <h6 class="text-uppercase mb-3">Live Terminal Logs</h6>
-        <div id="logs" class="log-container"><span class="text-secondary">Menunggu respons server...</span></div>
+        <h6 class="text-uppercase mb-3 text-white">Live Terminal Logs</h6>
+        <div id="logs" class="log-container text-white">Menunggu respons server...</div>
     </div>
 </div>
 
 <script>
     var socket = io();
     
-    // Notifikasi saat sukses terhubung ke backend Railway
     socket.on('connect', function() {
         document.getElementById('logs').innerHTML = "<span class='text-success'>[SYSTEM] Terhubung ke Server Bot Nara! Sinkronisasi data...</span><br>";
     });
 
-    // Notifikasi jika server terputus/restart
     socket.on('disconnect', function() {
-        document.getElementById('logs').innerHTML = "<span class='text-danger'>[SYSTEM] Koneksi terputus! Mengubungkan ulang...</span><br>" + document.getElementById('logs').innerHTML;
+        document.getElementById('logs').innerHTML = "<span class='text-danger'>[SYSTEM] Koneksi terputus! Menghubungkan ulang...</span><br>" + document.getElementById('logs').innerHTML;
     });
 
-    // Menerima update data secara real-time
     socket.on('update', function(data) {
         document.getElementById('bal').innerText = data.balance;
         document.getElementById('ok').innerText = data.success;
         document.getElementById('fail').innerText = data.failed;
         document.getElementById('quest').innerText = data.current_q;
+        document.getElementById('round').innerText = data.current_r !== "-" ? "#" + data.current_r : "#--";
         document.getElementById('logs').innerHTML = data.logs.join('<br>');
     });
 </script>
