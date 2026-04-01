@@ -1,19 +1,19 @@
-# WAJIB: Monkey patch di baris paling atas untuk stabilitas SocketIO di server
-import eventlet
-eventlet.monkey_patch()
+# WAJIB: Monkey patch dari gevent di baris paling atas
+from gevent import monkey
+monkey.patch_all()
+import gevent
 
 import subprocess
 import requests
 import time
 import re
 import os
-import threading
 from flask import Flask, render_template
 from flask_socketio import SocketIO
 
 app = Flask(__name__)
-# Menggunakan eventlet sebagai async_mode agar tidak terjadi tabrakan proses
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+# Menggunakan gevent sebagai async_mode modern
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 # ==========================================
 # KONFIGURASI AI & RAILWAY VARIABLES
@@ -21,11 +21,10 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") 
 API_URL = "https://api.bluesminds.com/v1/chat/completions"
 MODEL_AI = "gpt-4o"
-WALLET_KEY = os.getenv("WALLET_KEY") # Diambil dari setting Railway Variables
+WALLET_KEY = os.getenv("WALLET_KEY") 
 
 UPDATE_BALANCE_EVERY = 5 
 
-# State Global untuk Dashboard
 stats = {
     "balance": "0.0",
     "success": 0,
@@ -35,12 +34,10 @@ stats = {
 }
 
 def clean_ansi(text):
-    """Menghapus kode warna terminal agar teks bersih di web"""
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
     return ansi_escape.sub('', text)
 
 def add_log(msg, type="INFO"):
-    """Mengirim log ke Web UI secara real-time"""
     t = time.strftime("%H:%M:%S")
     emojis = {"INFO": "⚪", "OK": "🟢", "ERROR": "🔴", "WARN": "🟡", "AI": "🤖", "BANK": "🏦"}
     entry = f"[{t}] {emojis.get(type, 'ℹ️')} {msg}"
@@ -50,7 +47,6 @@ def add_log(msg, type="INFO"):
     socketio.emit('update', stats)
 
 def setup_wallet():
-    """Membuat file id.json dari variabel WALLET_KEY"""
     if not WALLET_KEY:
         add_log("ERROR: WALLET_KEY tidak ditemukan di Variables Railway!", "ERROR")
         return False
@@ -63,7 +59,6 @@ def setup_wallet():
     return True
 
 def sync_blockchain_balance():
-    """Sinkronisasi saldo langsung dari blockchain"""
     try:
         res = subprocess.run(["npx", "naracli", "balance"], capture_output=True, text=True, timeout=20)
         output = clean_ansi(res.stdout + res.stderr)
@@ -76,7 +71,6 @@ def sync_blockchain_balance():
         add_log("Gagal sinkronisasi saldo (Blockchain Busy)", "WARN")
 
 def ask_ai(question, is_mc, previous_attempts=None):
-    """Memanggil GPT-4o untuk mendapatkan jawaban"""
     if is_mc:
         system_msg = "QUIZ MODE: MULTIPLE CHOICE. Output ONLY the single letter (A, B, C, or D)."
     else:
@@ -105,7 +99,6 @@ def ask_ai(question, is_mc, previous_attempts=None):
         return None
 
 def submit_answer(answer):
-    """Mengirim jawaban ke naracli"""
     if not answer: return False
     add_log(f"Mengirim Jawaban: {answer}", "INFO")
     try:
@@ -131,8 +124,7 @@ def submit_answer(answer):
         return False
 
 def bot_engine():
-    """Loop utama bot pemantau kuis"""
-    eventlet.sleep(5) # Memberi waktu Web UI untuk siap
+    gevent.sleep(5) # Memberi waktu Web UI untuk siap menggunakan gevent
     add_log("Memulai Mesin Pemantau Kuis...", "AI")
     
     if not setup_wallet(): return
@@ -141,7 +133,7 @@ def bot_engine():
     last_r = None
     while True:
         try:
-            eventlet.sleep(2) # Polling kuis setiap 2 detik
+            gevent.sleep(2) # Polling kuis setiap 2 detik dengan gevent
             
             res_q = subprocess.run(["npx", "naracli", "quest", "get"], capture_output=True, text=True)
             out_q = clean_ansi(res_q.stdout)
@@ -177,7 +169,7 @@ def bot_engine():
                                 if submit_answer(char): 
                                     success = True; break
                             break
-                        eventlet.sleep(3)
+                        gevent.sleep(3)
 
                     if not success: stats["failed"] += 1
                     last_r = curr_r
@@ -185,7 +177,7 @@ def bot_engine():
                     socketio.emit('update', stats)
 
         except Exception:
-            eventlet.sleep(5)
+            gevent.sleep(5)
 
 # --- ROUTES ---
 @app.route('/')
@@ -193,8 +185,8 @@ def index():
     return render_template('index.html')
 
 if __name__ == '__main__':
-    # Jalankan bot di thread background (menggunakan eventlet spawn)
-    eventlet.spawn(bot_engine)
+    # Jalankan bot di thread background menggunakan gevent
+    gevent.spawn(bot_engine)
     
     # Jalankan server web
     port = int(os.environ.get("PORT", 5000))
