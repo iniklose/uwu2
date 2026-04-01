@@ -1,9 +1,19 @@
-import subprocess, requests, time, re, os, threading
+# WAJIB: Monkey patch di baris paling atas untuk stabilitas SocketIO di server
+import eventlet
+eventlet.monkey_patch()
+
+import subprocess
+import requests
+import time
+import re
+import os
+import threading
 from flask import Flask, render_template
 from flask_socketio import SocketIO
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+# Menggunakan eventlet sebagai async_mode agar tidak terjadi tabrakan proses
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # ==========================================
 # KONFIGURASI AI & RAILWAY VARIABLES
@@ -11,54 +21,69 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") 
 API_URL = "https://api.bluesminds.com/v1/chat/completions"
 MODEL_AI = "gpt-4o"
-WALLET_KEY = os.getenv("WALLET_KEY") # Diambil dari setting Railway, bukan hardcode!
+WALLET_KEY = os.getenv("WALLET_KEY") # Diambil dari setting Railway Variables
 
 UPDATE_BALANCE_EVERY = 5 
 
+# State Global untuk Dashboard
 stats = {
     "balance": "0.0",
     "success": 0,
     "failed": 0,
-    "current_q": "Menunggu mesin menyala...",
+    "current_q": "Menghubungkan ke mesin...",
     "logs": []
 }
 
 def clean_ansi(text):
-    return re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])').sub('', text)
+    """Menghapus kode warna terminal agar teks bersih di web"""
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
 
 def add_log(msg, type="INFO"):
+    """Mengirim log ke Web UI secara real-time"""
     t = time.strftime("%H:%M:%S")
     emojis = {"INFO": "⚪", "OK": "🟢", "ERROR": "🔴", "WARN": "🟡", "AI": "🤖", "BANK": "🏦"}
     entry = f"[{t}] {emojis.get(type, 'ℹ️')} {msg}"
+    
     stats["logs"].insert(0, entry)
-    if len(stats["logs"]) > 35: stats["logs"].pop()
+    if len(stats["logs"]) > 40: stats["logs"].pop()
     socketio.emit('update', stats)
 
 def setup_wallet():
+    """Membuat file id.json dari variabel WALLET_KEY"""
     if not WALLET_KEY:
-        add_log("CRITICAL ERROR: WALLET_KEY tidak ditemukan di Railway Variables!", "ERROR")
-        return
+        add_log("ERROR: WALLET_KEY tidak ditemukan di Variables Railway!", "ERROR")
+        return False
+        
     config_path = os.path.expanduser("~/.config/nara")
     os.makedirs(config_path, exist_ok=True)
     with open(f"{config_path}/id.json", "w") as f:
         f.write(WALLET_KEY)
-    add_log("File id.json berhasil diracik ke sistem!", "OK")
+    add_log("Wallet ID.json berhasil dikonfigurasi.", "OK")
+    return True
 
 def sync_blockchain_balance():
+    """Sinkronisasi saldo langsung dari blockchain"""
     try:
         res = subprocess.run(["npx", "naracli", "balance"], capture_output=True, text=True, timeout=20)
         output = clean_ansi(res.stdout + res.stderr)
         match = re.search(r"Balance:\s*([\d\.]+)", output)
         if match:
             stats["balance"] = match.group(1)
-            add_log(f"Saldo Tersinkronisasi: {stats['balance']} NARA", "BANK")
+            add_log(f"Saldo Wallet: {stats['balance']} NARA", "BANK")
             socketio.emit('update', stats)
-    except Exception: 
-        add_log("Blockchain sibuk, gagal cek saldo.", "WARN")
+    except:
+        add_log("Gagal sinkronisasi saldo (Blockchain Busy)", "WARN")
 
 def ask_ai(question, is_mc, previous_attempts=None):
-    system_msg = "QUIZ MODE: MULTIPLE CHOICE. Output ONLY the single letter (A, B, C, or D)." if is_mc else "QUIZ MODE: ESSAY. Output ONLY the specific word/term. NEVER output just a single letter."
+    """Memanggil GPT-4o untuk mendapatkan jawaban"""
+    if is_mc:
+        system_msg = "QUIZ MODE: MULTIPLE CHOICE. Output ONLY the single letter (A, B, C, or D)."
+    else:
+        system_msg = "QUIZ MODE: ESSAY. Output ONLY the specific word/term. NEVER output just a single letter."
+
     prompt_retry = f"\n\nNote: Do NOT use these wrong answers: {', '.join(previous_attempts)}" if previous_attempts else ""
+
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": MODEL_AI,
@@ -73,44 +98,54 @@ def ask_ai(question, is_mc, previous_attempts=None):
         ans = res.json()['choices'][0]['message']['content'].strip().split('\n')[0]
         final = re.sub(r"^(Answer|Result|Option):\s*", "", ans, flags=re.IGNORECASE).strip()
         final = re.sub(r"^[A-Z][\.\)\-\s]+", "", final).strip()
+        
         if not is_mc and len(final) <= 1: return None 
         return final if len(final) == 1 else final.title()
-    except: return None
+    except:
+        return None
 
 def submit_answer(answer):
+    """Mengirim jawaban ke naracli"""
     if not answer: return False
-    add_log(f"Menjawab: {answer}", "INFO")
+    add_log(f"Mengirim Jawaban: {answer}", "INFO")
     try:
         res = subprocess.run(["npx", "naracli", "quest", "answer", answer], capture_output=True, text=True, timeout=60)
         out = clean_ansi(res.stdout + "\n" + res.stderr).strip()
+        
         if any(w in out.lower() for w in ["success", "reward", "congratulations", "submitted"]):
             stats["success"] += 1
             rew_match = re.search(r"(?:received|reward):\s*([\d\.]+)", out.lower())
-            if rew_match: add_log(f"Cuan Masuk! (+{rew_match.group(1)} NARA)", "OK")
-            if stats["success"] % UPDATE_BALANCE_EVERY == 0: sync_blockchain_balance()
+            if rew_match:
+                add_log(f"Sukses! Mendapatkan +{rew_match.group(1)} NARA", "OK")
+            
+            if stats["success"] % UPDATE_BALANCE_EVERY == 0:
+                sync_blockchain_balance()
+            
             socketio.emit('update', stats)
             return True
         else:
-            add_log(f"Ditolak: {out[:40]}...", "WARN")
+            add_log(f"Gagal: {out[:40]}...", "WARN")
             return False
     except Exception as e:
-        add_log(f"CMD Error: {str(e)[:30]}", "ERROR")
+        add_log(f"Kesalahan Sistem: {str(e)[:30]}", "ERROR")
         return False
 
 def bot_engine():
-    time.sleep(3) # Jeda loading UI
-    add_log("Memulai Mesin Bot V19.0...", "AI")
-    setup_wallet()
+    """Loop utama bot pemantau kuis"""
+    eventlet.sleep(5) # Memberi waktu Web UI untuk siap
+    add_log("Memulai Mesin Pemantau Kuis...", "AI")
+    
+    if not setup_wallet(): return
     sync_blockchain_balance()
-    stats["current_q"] = "Siaga! Memantau kuis baru..."
-    socketio.emit('update', stats)
     
     last_r = None
     while True:
         try:
-            time.sleep(2)
+            eventlet.sleep(2) # Polling kuis setiap 2 detik
+            
             res_q = subprocess.run(["npx", "naracli", "quest", "get"], capture_output=True, text=True)
             out_q = clean_ansi(res_q.stdout)
+            
             q_match = re.search(r"Question:\s*(.*?)\s*Round:", out_q, re.DOTALL)
             r_match = re.search(r"Round:\s*#(\d+)", out_q)
 
@@ -121,7 +156,7 @@ def bot_engine():
                 if curr_r != last_r and "0 remaining" not in out_q:
                     stats["current_q"] = q_text
                     socketio.emit('update', stats)
-                    add_log(f"🔥 Ronde #{curr_r} Terdeteksi!", "AI")
+                    add_log(f"Kuis Baru Terdeteksi! Ronde #{curr_r}", "AI")
                     
                     is_mc = bool(re.search(r"\b[A-D][\.\)]\s", q_text))
                     history = []; success = False
@@ -130,29 +165,37 @@ def bot_engine():
                     for i in range(max_tries):
                         ans = ask_ai(q_text, is_mc, previous_attempts=history)
                         if not ans: continue
+                        
                         success = submit_answer(ans)
                         if success: break
-                        history.append(ans)
                         
+                        history.append(ans)
                         if is_mc:
-                            add_log("Brute-force MC Mode...", "WARN")
+                            add_log("Mencoba Brute-force A/B/C/D...", "WARN")
                             for char in ["A", "B", "C", "D"]:
                                 if char == ans: continue
                                 if submit_answer(char): 
                                     success = True; break
                             break
-                        time.sleep(3.5)
+                        eventlet.sleep(3)
 
                     if not success: stats["failed"] += 1
                     last_r = curr_r
-                    stats["current_q"] = "Siaga! Memantau kuis berikutnya..."
+                    stats["current_q"] = "Siaga. Memantau ronde selanjutnya..."
                     socketio.emit('update', stats)
-        except: time.sleep(2)
 
+        except Exception:
+            eventlet.sleep(5)
+
+# --- ROUTES ---
 @app.route('/')
-def index(): return render_template('index.html')
+def index():
+    return render_template('index.html')
 
 if __name__ == '__main__':
-    threading.Thread(target=bot_engine, daemon=True).start()
+    # Jalankan bot di thread background (menggunakan eventlet spawn)
+    eventlet.spawn(bot_engine)
+    
+    # Jalankan server web
     port = int(os.environ.get("PORT", 5000))
     socketio.run(app, host='0.0.0.0', port=port)
