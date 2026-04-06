@@ -19,7 +19,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 # KONFIGURASI AI & RAILWAY VARIABLES
 # ==========================================
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") 
-API_URL = "https://openrouter.ai/api/v1/chat/completions"
+API_URL = "https://api.supxh.xin/v1/chat/completions"
 MODEL_AI = "qwen/qwen3.6-plus:free"
 WALLET_KEY = os.getenv("WALLET_KEY") 
 
