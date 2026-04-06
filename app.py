@@ -20,7 +20,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 # ==========================================
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") 
 API_URL = "https://api.supxh.xin/v1/chat/completions"
-MODEL_AI = "qwen/qwen3.6-plus:free"
+MODEL_AI = "gemini-3-flash"
 WALLET_KEY = os.getenv("WALLET_KEY") 
 
 UPDATE_BALANCE_EVERY = 5 
