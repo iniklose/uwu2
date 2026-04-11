@@ -1,4 +1,10 @@
-# WAJIB: Monkey patch dari gevent di baris paling atas
+#!/usr/bin/env python3
+"""
+MODIFIED VERSION - Free Tier Only Filter
+Original: https://github.com/sakalilion/jajang
+Changes: Added stake detection, only mine free tier quests
+"""
+
 from gevent import monkey
 monkey.patch_all()
 import gevent
@@ -8,29 +14,33 @@ import requests
 import time
 import re
 import os
+import json
 from flask import Flask, render_template
 from flask_socketio import SocketIO
 
 app = Flask(__name__)
-# Menggunakan gevent sebagai async_mode modern
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 # ==========================================
 # KONFIGURASI AI & RAILWAY VARIABLES
 # ==========================================
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") 
-API_URL = "https://api.supxh.xin/v1/chat/completions"
-MODEL_AI = "gemini-3-flash"
-WALLET_KEY = os.getenv("WALLET_KEY") 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+API_URL = "api.fireworks.ai/inference/v1/chat/completions"
+MODEL_AI = "accounts/fireworks/models/kimi-k2p5"
+WALLET_KEY = os.getenv("WALLET_KEY")
 
-UPDATE_BALANCE_EVERY = 5 
+# FREE TIER SETTINGS
+MAX_STAKE = 0.1  # Hanya mine kalau stake <= 0.1 NARA atau stakeRequired = False
+
+UPDATE_BALANCE_EVERY = 5
 
 stats = {
     "balance": "0.0",
     "success": 0,
     "failed": 0,
+    "skipped_high_stake": 0,
     "current_q": "Menghubungkan ke mesin bot...",
-    "current_r": "-", # Indikator Ronde
+    "current_r": "-",
     "logs": []
 }
 
@@ -40,18 +50,19 @@ def clean_ansi(text):
 
 def add_log(msg, type="INFO"):
     t = time.strftime("%H:%M:%S")
-    emojis = {"INFO": "⚪", "OK": "🟢", "ERROR": "🔴", "WARN": "🟡", "AI": "🤖", "BANK": "🏦"}
+    emojis = {"INFO": "⚪", "OK": "🟢", "ERROR": "🔴", "WARN": "🟡", "AI": "🤖", "BANK": "🏦", "SKIP": "⏭️", "FREE": "✅"}
     entry = f"[{t}] {emojis.get(type, 'ℹ️')} {msg}"
     
     stats["logs"].insert(0, entry)
-    if len(stats["logs"]) > 40: stats["logs"].pop()
+    if len(stats["logs"]) > 40:
+        stats["logs"].pop()
     socketio.emit('update', stats)
 
 def setup_wallet():
     if not WALLET_KEY:
         add_log("ERROR FATAL: WALLET_KEY tidak ditemukan di Variables Railway!", "ERROR")
         return False
-        
+    
     config_path = os.path.expanduser("~/.config/nara")
     os.makedirs(config_path, exist_ok=True)
     with open(f"{config_path}/id.json", "w") as f:
@@ -71,14 +82,46 @@ def sync_blockchain_balance():
     except:
         add_log("Gagal sinkronisasi saldo (Blockchain sibuk)", "WARN")
 
+def get_quest_json():
+    """Get quest data as JSON with stake info"""
+    try:
+        res = subprocess.run(["npx", "naracli", "quest", "get", "--json"],
+                          capture_output=True, text=True, timeout=10)
+        if res.returncode == 0:
+            return json.loads(res.stdout)
+    except:
+        pass
+    return None
+
+def is_free_tier(quest_data):
+    """Check if quest is free tier (stake = 0 or not required)"""
+    if not quest_data:
+        return False
+    
+    # Check if stake is required
+    if not quest_data.get('stakeRequired', True):
+        return True
+    
+    # Check stake amount
+    stake_str = quest_data.get('stakeRequirement', '0')
+    try:
+        stake = float(stake_str)
+        return stake <= MAX_STAKE
+    except:
+        return False
+
 def ask_ai(question, is_mc, previous_attempts=None):
+    if not OPENAI_API_KEY:
+        add_log("ERROR: OPENAI_API_KEY tidak tersedia!", "ERROR")
+        return None
+    
     if is_mc:
         system_msg = "QUIZ MODE: MULTIPLE CHOICE. Output ONLY the single letter (A, B, C, or D)."
     else:
         system_msg = "QUIZ MODE: ESSAY. Output ONLY the specific word/term. NEVER output just a single letter."
-
+    
     prompt_retry = f"\n\nNote: Do NOT use these wrong answers: {', '.join(previous_attempts)}" if previous_attempts else ""
-
+    
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
     
     payload = {
@@ -96,111 +139,149 @@ def ask_ai(question, is_mc, previous_attempts=None):
         final = re.sub(r"^(Answer|Result|Option):\s*", "", ans, flags=re.IGNORECASE).strip()
         final = re.sub(r"^[A-Z][\.\)\-\s]+", "", final).strip()
         
-        if not is_mc and len(final) <= 1: return None 
+        if not is_mc and len(final) <= 1:
+            return None
         return final if len(final) == 1 else final.title()
-    except:
+    except Exception as e:
+        add_log(f"AI Error: {str(e)[:50]}", "ERROR")
         return None
 
 def submit_answer(answer):
-    if not answer: return False
+    if not answer:
+        return False
     add_log(f"Mengirim Jawaban: {answer}", "INFO")
     try:
-        res = subprocess.run(["npx", "naracli", "quest", "answer", answer], capture_output=True, text=True, timeout=60)
+        res = subprocess.run(["npx", "naracli", "quest", "answer", answer],
+                          capture_output=True, text=True, timeout=60)
         out = clean_ansi(res.stdout + "\n" + res.stderr).strip()
         
         if any(w in out.lower() for w in ["success", "reward", "congratulations", "submitted"]):
-            stats["success"] += 1
-            rew_match = re.search(r"(?:received|reward):\s*([\d\.]+)", out.lower())
-            if rew_match:
-                add_log(f"Sukses! Mendapatkan +{rew_match.group(1)} NARA", "OK")
-            
-            if stats["success"] % UPDATE_BALANCE_EVERY == 0:
-                sync_blockchain_balance()
-            
-            socketio.emit('update', stats)
             return True
         else:
-            add_log(f"Gagal: {out[:40]}...", "WARN")
+            add_log(f"Gagal: {out[:60]}...", "WARN")
             return False
     except Exception as e:
-        add_log(f"Kesalahan Sistem: {str(e)[:30]}", "ERROR")
+        add_log(f"Kesalahan Sistem: {str(e)[:50]}", "ERROR")
         return False
 
 def bot_engine():
-    gevent.sleep(3) 
-    add_log("Memulai Mesin Pemantau Kuis V19.0...", "AI")
+    gevent.sleep(3)
+    add_log("Memulai Mesin Pemantau Kuis V20.0 (Free Tier Only)...", "AI")
     
-    if not setup_wallet(): return
+    if not setup_wallet():
+        return
     sync_blockchain_balance()
     
-    stats["current_q"] = "Siaga! Memantau ronde kuis baru..."
+    stats["current_q"] = "Siaga! Memantau ronde kuis baru... (Free Tier Only)"
     socketio.emit('update', stats)
     
     last_r = None
+    
     while True:
         try:
-            gevent.sleep(2) # Polling kuis setiap 2 detik
+            # Polling setiap 500ms (super cepat)
+            gevent.sleep(0.5)
             
-            res_q = subprocess.run(["npx", "naracli", "quest", "get"], capture_output=True, text=True)
-            out_q = clean_ansi(res_q.stdout)
+            # Get quest data as JSON
+            quest_data = get_quest_json()
+            if not quest_data:
+                continue
             
-            q_match = re.search(r"Question:\s*(.*?)\s*Round:", out_q, re.DOTALL)
-            r_match = re.search(r"Round:\s*#(\d+)", out_q)
-
-            if q_match and r_match:
-                q_text = q_match.group(1).strip()
-                curr_r = r_match.group(1)
+            curr_r = quest_data.get('round')
+            q_text = quest_data.get('question', '')
+            stake_req = quest_data.get('stakeRequirement', '0')
+            stake_required = quest_data.get('stakeRequired', True)
+            remaining_slots = quest_data.get('remainingRewardSlots', 0)
+            
+            # Skip jika round sama atau slots penuh
+            if curr_r == last_r:
+                continue
+            if remaining_slots == 0:
+                add_log(f"Round {curr_r}: Slots penuh, skip", "SKIP")
+                last_r = curr_r
+                continue
+            
+            # CHECK: Free tier only
+            if not is_free_tier(quest_data):
+                add_log(f"Round {curr_r}: HIGH STAKE ({stake_req} NARA) - Skip", "SKIP")
+                stats["skipped_high_stake"] += 1
+                last_r = curr_r
+                continue
+            
+            # FREE TIER DETECTED!
+            add_log(f"🔥 Round {curr_r}: FREE TIER! Stake: {stake_req} NARA", "FREE")
+            add_log(f"Question: {q_text[:60]}...", "INFO")
+            
+            stats["current_r"] = curr_r
+            stats["current_q"] = q_text
+            socketio.emit('update', stats)
+            
+            # Process quest
+            is_mc = bool(re.search(r"\b[A-D][\.\)]\s", q_text))
+            history = []
+            success = False
+            max_tries = 4 if not is_mc else 1
+            
+            # AI attempts
+            for i in range(max_tries):
+                ans = ask_ai(q_text, is_mc, previous_attempts=history)
+                if not ans:
+                    add_log(f"AI attempt {i+1}/{max_tries}: No response", "WARN")
+                    gevent.sleep(1)
+                    continue
                 
-                if curr_r != last_r and "0 remaining" not in out_q:
-                    stats["current_r"] = curr_r # Update Info Ronde
-                    stats["current_q"] = q_text
-                    socketio.emit('update', stats)
-                    add_log(f"🔥 Kuis Baru Terdeteksi! Ronde #{curr_r}", "AI")
+                add_log(f"AI jawab: \"{ans}\"", "AI")
+                
+                if submit_answer(ans):
+                    stats["success"] += 1
+                    add_log(f"✅ SUKSES! +{quest_data.get('rewardPerWinner', '0')} NARA", "OK")
                     
-                    is_mc = bool(re.search(r"\b[A-D][\.\)]\s", q_text))
-                    history = []; success = False
-                    max_tries = 4 if not is_mc else 1
-
-                    for i in range(max_tries):
-                        ans = ask_ai(q_text, is_mc, previous_attempts=history)
-                        if not ans: continue
-                        
-                        success = submit_answer(ans)
-                        if success: break
-                        
-                        history.append(ans)
-                        if is_mc:
-                            add_log("Mencoba Brute-force A/B/C/D...", "WARN")
-                            for char in ["A", "B", "C", "D"]:
-                                if char == ans: continue
-                                if submit_answer(char): 
-                                    success = True; break
-                            break
-                        gevent.sleep(3.5)
-
-                    if not success: stats["failed"] += 1
-                    last_r = curr_r
-                    stats["current_q"] = "Siaga! Memantau ronde selanjutnya..."
-                    socketio.emit('update', stats)
-
-        except Exception:
+                    if stats["success"] % UPDATE_BALANCE_EVERY == 0:
+                        sync_blockchain_balance()
+                    
+                    success = True
+                    break
+                else:
+                    history.append(ans)
+                    if not is_mc:
+                        gevent.sleep(2)
+            
+            # Brute force untuk MC jika gagal
+            if not success and is_mc:
+                add_log("Mencoba brute-force A/B/C/D...", "WARN")
+                for char in ["A", "B", "C", "D"]:
+                    if char in history:
+                        continue
+                    add_log(f"Brute force: {char}...", "INFO")
+                    if submit_answer(char):
+                        stats["success"] += 1
+                        add_log(f"✅ SUKSES dengan {char}!", "OK")
+                        success = True
+                        break
+                    gevent.sleep(0.5)
+            
+            if not success:
+                stats["failed"] += 1
+                add_log(f"❌ Gagal mine round {curr_r}", "ERROR")
+            
+            last_r = curr_r
+            stats["current_q"] = "Siaga! Memantau ronde selanjutnya..."
+            socketio.emit('update', stats)
+            
+        except Exception as e:
+            add_log(f"Error: {str(e)[:80]}", "ERROR")
             gevent.sleep(2)
 
-# --- ROUTES & SOCKET EVENTS ---
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# Fitur Anti-Blank: Otomatis kirim data saat web dibuka/direload
 @socketio.on('connect')
 def handle_connect():
     print("Client Terhubung! Sinkronisasi UI...")
     socketio.emit('update', stats)
 
 if __name__ == '__main__':
-    # Jalankan bot sebagai background task bawaan SocketIO
     socketio.start_background_task(bot_engine)
-    
-    # Jalankan server web
     port = int(os.environ.get("PORT", 5000))
     socketio.run(app, host='0.0.0.0', port=port)
