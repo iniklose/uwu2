@@ -111,8 +111,8 @@ def is_free_tier(quest_data):
         return False
 
 def ask_ai(question, is_mc, previous_attempts=None):
-    if not OPENAI_API_KEY:
-        add_log("ERROR: OPENAI_API_KEY tidak tersedia!", "ERROR")
+    if not FIREWORKS_API_KEY:
+        add_log("ERROR: FIREWORKS_API_KEY tidak tersedia!", "ERROR")
         return None
     
     if is_mc:
@@ -122,7 +122,7 @@ def ask_ai(question, is_mc, previous_attempts=None):
     
     prompt_retry = f"\n\nNote: Do NOT use these wrong answers: {', '.join(previous_attempts)}" if previous_attempts else ""
     
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {FIREWORKS_API_KEY}", "Content-Type": "application/json"}
     
     payload = {
         "model": MODEL_AI,
