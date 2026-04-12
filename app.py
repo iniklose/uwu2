@@ -148,21 +148,27 @@ def ask_ai(question, is_mc, previous_attempts=None):
 
 def submit_answer(answer):
     if not answer:
-        return False
+        return "ERROR"
     add_log(f"Mengirim Jawaban: {answer}", "INFO")
     try:
         res = subprocess.run(["npx", "naracli", "quest", "answer", answer],
                           capture_output=True, text=True, timeout=60)
         out = clean_ansi(res.stdout + "\n" + res.stderr).strip()
+        out_lower = out.lower()
         
-        if any(w in out.lower() for w in ["success", "reward", "congratulations", "submitted"]):
-            return True
-        else:
-            add_log(f"Gagal: {out[:60]}...", "WARN")
-            return False
+        if any(w in out_lower for w in ["success", "reward", "congratulations", "submitted", "already"]):
+            return "SUCCESS"
+        
+        if any(w in out_lower for w in ["wrong", "incorrect", "invalid"]):
+            add_log(f"Jawaban Salah: {out[:60]}...", "WARN")
+            return "WRONG"
+            
+        add_log(f"Gagal (System/RPC): {out[:60]}...", "WARN")
+        return "ERROR"
+        
     except Exception as e:
         add_log(f"Kesalahan Sistem: {str(e)[:50]}", "ERROR")
-        return False
+        return "ERROR"
 
 def bot_engine():
     gevent.sleep(3)
@@ -232,7 +238,8 @@ def bot_engine():
                 
                 add_log(f"AI jawab: \"{ans}\"", "AI")
                 
-                if submit_answer(ans):
+                res_sub = submit_answer(ans)
+                if res_sub == "SUCCESS":
                     stats["success"] += 1
                     add_log(f"✅ SUKSES! +{quest_data.get('rewardPerWinner', '0')} NARA", "OK")
                     
@@ -241,8 +248,11 @@ def bot_engine():
                     
                     success = True
                     break
-                else:
+                elif res_sub == "WRONG":
                     history.append(ans)
+                    gevent.sleep(2)
+                else:
+                    # ERROR (System/RPC) - Jangan masukkan ke history agar bisa dicoba lagi
                     gevent.sleep(2)
             
 
