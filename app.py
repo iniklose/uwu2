@@ -24,8 +24,8 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 # ==========================================
 # KONFIGURASI AI & RAILWAY VARIABLES
 # ==========================================
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-API_URL = "api.fireworks.ai/inference/v1/chat/completions"
+FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
+API_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
 MODEL_AI = "accounts/fireworks/models/gpt-oss-20b"
 WALLET_KEY = os.getenv("WALLET_KEY")
 
