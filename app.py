@@ -236,10 +236,6 @@ def bot_engine():
             if not quest_data:
                 continue
             
-            # DEBUG: Tampilkan cuplikan JSON di Web UI
-            json_str = json.dumps(quest_data)
-            add_log(f"DEBUG DATA: {json_str[:300]}...", "INFO")
-            
             curr_r = quest_data.get('round')
             q_text = quest_data.get('question', '')
             stake_req = quest_data.get('stakeRequirement', '0')
@@ -249,6 +245,11 @@ def bot_engine():
             # Skip jika round sama atau slots penuh
             if curr_r == last_r:
                 continue
+            
+            # DEBUG: Tampilkan data STAKE yang diterima ke Web UI
+            json_str = json.dumps(quest_data)
+            add_log(f"DEBUG STAKE R {curr_r}: Bool={quest_data.get('stakeRequired')}, Val='{quest_data.get('stakeRequirement')}'", "INFO")
+            add_log(f"DEBUG RAW: {json_str[:600]}", "INFO")
             if remaining_slots == 0:
                 add_log(f"Round {curr_r}: Slots penuh, skip", "SKIP")
                 last_r = curr_r
