@@ -26,7 +26,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 # ==========================================
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 API_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
-MODEL_AI = "accounts/fireworks/models/gpt-oss-20b"
+MODEL_AI = "accounts/fireworks/models/glm-5p1"
 WALLET_KEY = os.getenv("WALLET_KEY")
 
 # FREE TIER SETTINGS
@@ -36,6 +36,7 @@ UPDATE_BALANCE_EVERY = 5
 
 stats = {
     "balance": "0.0",
+    "address": "-",
     "success": 0,
     "failed": 0,
     "skipped_high_stake": 0,
@@ -68,6 +69,17 @@ def setup_wallet():
     with open(f"{config_path}/id.json", "w") as f:
         f.write(WALLET_KEY)
     add_log("Wallet ID.json berhasil dikonfigurasi dari Railway.", "OK")
+    
+    # Ambil Address untuk UI
+    try:
+        res = subprocess.run(["npx", "naracli", "address"], capture_output=True, text=True, timeout=15)
+        addr = clean_ansi(res.stdout).strip()
+        if addr:
+            stats["address"] = addr
+            add_log(f"Wallet Address: {addr}", "OK")
+    except:
+        add_log("Gagal mengambil alamat wallet", "WARN")
+        
     return True
 
 def sync_blockchain_balance():
@@ -134,7 +146,7 @@ def ask_ai(question, is_mc, previous_attempts=None):
     }
     
     try:
-        res = requests.post(API_URL, headers=headers, json=payload, timeout=15)
+        res = requests.post(API_URL, headers=headers, json=payload, timeout=60)
         ans = res.json()['choices'][0]['message']['content'].strip().split('\n')[0]
         final = re.sub(r"^(Answer|Result|Option):\s*", "", ans, flags=re.IGNORECASE).strip()
         final = re.sub(r"^[A-Z][\.\)\-\s]+", "", final).strip()
@@ -148,21 +160,27 @@ def ask_ai(question, is_mc, previous_attempts=None):
 
 def submit_answer(answer):
     if not answer:
-        return False
+        return "ERROR"
     add_log(f"Mengirim Jawaban: {answer}", "INFO")
     try:
         res = subprocess.run(["npx", "naracli", "quest", "answer", answer],
                           capture_output=True, text=True, timeout=60)
         out = clean_ansi(res.stdout + "\n" + res.stderr).strip()
+        out_lower = out.lower()
         
-        if any(w in out.lower() for w in ["success", "reward", "congratulations", "submitted"]):
-            return True
-        else:
-            add_log(f"Gagal: {out[:60]}...", "WARN")
-            return False
+        if any(w in out_lower for w in ["success", "reward", "congratulations", "submitted", "already"]):
+            return "SUCCESS"
+        
+        if any(w in out_lower for w in ["wrong", "incorrect", "invalid"]):
+            add_log(f"Jawaban Salah: {out[:60]}...", "WARN")
+            return "WRONG"
+            
+        add_log(f"Gagal (System/RPC): {out[:60]}...", "WARN")
+        return "ERROR"
+        
     except Exception as e:
         add_log(f"Kesalahan Sistem: {str(e)[:50]}", "ERROR")
-        return False
+        return "ERROR"
 
 def bot_engine():
     gevent.sleep(3)
@@ -220,7 +238,7 @@ def bot_engine():
             is_mc = bool(re.search(r"\b[A-D][\.\)]\s", q_text))
             history = []
             success = False
-            max_tries = 3  # AI retry up to 3 times for all question types
+            max_tries = 4 if not is_mc else 3
             
             # AI attempts
             for i in range(max_tries):
@@ -232,7 +250,8 @@ def bot_engine():
                 
                 add_log(f"AI jawab: \"{ans}\"", "AI")
                 
-                if submit_answer(ans):
+                res_sub = submit_answer(ans)
+                if res_sub == "SUCCESS":
                     stats["success"] += 1
                     add_log(f"✅ SUKSES! +{quest_data.get('rewardPerWinner', '0')} NARA", "OK")
                     
@@ -241,9 +260,14 @@ def bot_engine():
                     
                     success = True
                     break
-                else:
+                elif res_sub == "WRONG":
                     history.append(ans)
-                    gevent.sleep(1.5 if is_mc else 2)
+                    gevent.sleep(2)
+                else:
+                    # ERROR (System/RPC) - Jangan masukkan ke history agar bisa dicoba lagi
+                    gevent.sleep(2)
+            
+
             
             if not success:
                 stats["failed"] += 1
