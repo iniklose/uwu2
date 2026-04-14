@@ -252,12 +252,14 @@ def bot_engine():
             
             # CHECK: Free tier only
             if not is_free_tier(quest_data):
+                print(f"DEBUG SKIP: Quest Data Round {curr_r} -> {json.dumps(quest_data, indent=2)}")
                 add_log(f"Round {curr_r}: HIGH STAKE ({stake_req} NARA) - Skip", "SKIP")
                 stats["skipped_high_stake"] += 1
                 last_r = curr_r
                 continue
             
             # FREE TIER DETECTED!
+            print(f"DEBUG: Quest Data Round {curr_r} -> {json.dumps(quest_data, indent=2)}")
             add_log(f"🔥 Round {curr_r}: FREE TIER! Stake: {stake_req} NARA", "FREE")
             add_log(f"Question: {q_text[:60]}...", "INFO")
             
