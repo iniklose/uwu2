@@ -236,6 +236,10 @@ def bot_engine():
             if not quest_data:
                 continue
             
+            # DEBUG: Tampilkan cuplikan JSON di Web UI
+            json_str = json.dumps(quest_data)
+            add_log(f"DEBUG DATA: {json_str[:300]}...", "INFO")
+            
             curr_r = quest_data.get('round')
             q_text = quest_data.get('question', '')
             stake_req = quest_data.get('stakeRequirement', '0')
