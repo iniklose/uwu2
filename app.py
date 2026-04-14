@@ -72,7 +72,7 @@ def setup_wallet():
     
     # Ambil Address untuk UI
     try:
-        res = subprocess.run(["npx", "naracli", "address"], capture_output=True, text=True, timeout=15)
+        res = subprocess.run(["npx", "-y", "naracli@latest", "address"], capture_output=True, text=True, timeout=15)
         addr = clean_ansi(res.stdout).strip()
         if addr:
             stats["address"] = addr
@@ -84,7 +84,7 @@ def setup_wallet():
 
 def sync_blockchain_balance():
     try:
-        res = subprocess.run(["npx", "naracli", "balance"], capture_output=True, text=True, timeout=20)
+        res = subprocess.run(["npx", "-y", "naracli@latest", "balance"], capture_output=True, text=True, timeout=20)
         output = clean_ansi(res.stdout + res.stderr)
         match = re.search(r"Balance:\s*([\d\.]+)", output)
         if match:
@@ -97,7 +97,7 @@ def sync_blockchain_balance():
 def get_quest_json():
     """Get quest data as JSON with stake info"""
     try:
-        res = subprocess.run(["npx", "naracli", "quest", "get", "--json"],
+        res = subprocess.run(["npx", "-y", "naracli@latest", "quest", "get", "--json"],
                           capture_output=True, text=True, timeout=10)
         if res.returncode == 0:
             # Penting: Bersihkan ANSI codes (warna) sebelum di-parse sebagai JSON
@@ -118,12 +118,25 @@ def is_free_tier(quest_data):
     
     # Check stake amount - Ambil angka saja (menghilangkan 'NARA' dsb)
     stake_raw = str(quest_data.get('stakeRequirement', '0'))
+    stake_low = str(quest_data.get('stakeLow', '0'))
+    
     match = re.search(r"([\d\.]+)", stake_raw)
+    match_low = re.search(r"([\d\.]+)", stake_low)
     
     if match:
         try:
             stake = float(match.group(1))
-            return stake <= MAX_STAKE
+            
+            # Jika stake <= MAX_STAKE (0.1), lanjut.
+            if stake <= MAX_STAKE:
+                return True
+                
+            # SPECIAL FIX: Jika stakeRequirement sama persis dengan stakeLow, 
+            # ada kemungkinan itu hanya saran/default dari node yang lag.
+            # Kita coba anggap free jika angkanya mencurigakan (opsional).
+            # return True if stake == float(match_low.group(1)) else False
+            
+            return False
         except:
             return False
     
@@ -176,7 +189,7 @@ def submit_answer(answer):
         
         try:
             # Meningkatkan timeout ke 120 detik karena ZK proof bisa memakan waktu lama
-            res = subprocess.run(["npx", "naracli", "quest", "answer", answer],
+            res = subprocess.run(["npx", "-y", "naracli@latest", "quest", "answer", answer],
                               capture_output=True, text=True, timeout=120)
             
             out = clean_ansi(res.stdout + "\n" + res.stderr).strip()
